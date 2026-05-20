@@ -117,7 +117,7 @@ export function createInitialState(playerTierId: TierId, wallet: number, mode: G
 
   // Bots: mix of tiers, weighted toward cheap
   const tanks: Tank[] = [player];
-  const tierPool: TierId[] = ["rookie","rookie","scout","scout","soldier","bronze","bronze","silver","gold","platinum","diamond"];
+  const tierPool: TierId[] = MODE_TIER_POOLS[mode];
   const botCount = 9;
   for (let i=0;i<botCount;i++){
     const t = getTier(tierPool[Math.floor(Math.random()*tierPool.length)]);
@@ -129,7 +129,7 @@ export function createInitialState(playerTierId: TierId, wallet: number, mode: G
   }
 
   return {
-    tanks, bullets: [], walls, bounties,
+    tanks, bullets: [], walls, bounties, particles: [],
     player,
     time: 0,
     zoneCx: ARENA.w/2, zoneCy: ARENA.h/2,
@@ -137,12 +137,14 @@ export function createInitialState(playerTierId: TierId, wallet: number, mode: G
     zoneTargetRadius: Math.hypot(ARENA.w,ARENA.h)/2,
     killFeed: [], floats: [], earnings: 0, wallet,
     gameOver: false, lastKillSummary: null, paused: false,
+    shake: 0, mode,
   };
 }
 
 function makeTank(id: string, isPlayer: boolean, name: string, tier: Tier, x: number, y: number): Tank {
   return {
     id, isPlayer, name, tier, x, y, vx:0, vy:0, angle: 0, turret: 0,
+    trackOffset: 0, muzzleFlash: 0,
     hp: tier.hp, maxHp: tier.hp, cooldown: 0, alive: true,
     damageDealtBy: new Map(), shieldHits: 0,
     buffs: { damage: 0, rapid: 0, speed: 0, cloak: 0 },
@@ -205,6 +207,8 @@ function fire(state: GameState, tank: Tank) {
   const cd = 1 / (tier.fireRate * rapid);
   if (tank.cooldown > 0) return;
   tank.cooldown = cd;
+  tank.muzzleFlash = 0.08;
+  if (tank.isPlayer) state.shake = Math.min(8, state.shake + 2);
   const damageMul = tank.buffs.damage > 0 ? 1.7 : 1;
   const bullets = tier.bullets;
   const spread = bullets === 1 ? 0 : 0.18;
@@ -219,6 +223,20 @@ function fire(state: GameState, tank: Tank) {
       ownerId: tank.id,
       damage: tier.damage * damageMul,
       life: 1.4,
+      color: tank.tier.color,
+      trail: [],
+    });
+  }
+  // Muzzle smoke
+  for (let i=0;i<5;i++){
+    const a = tank.turret + rand(-0.35,0.35);
+    const sp = rand(40, 140);
+    state.particles.push({
+      x: tank.x + Math.cos(tank.turret)*(tier.radius+8),
+      y: tank.y + Math.sin(tank.turret)*(tier.radius+8),
+      vx: Math.cos(a)*sp, vy: Math.sin(a)*sp,
+      life: rand(0.25,0.5), maxLife: 0.5,
+      size: rand(4,9), color: "rgba(220,200,160,0.7)", kind: "smoke",
     });
   }
 }
