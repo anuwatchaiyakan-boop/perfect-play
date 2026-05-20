@@ -77,6 +77,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "author", content: "Lovable" },
       { property: "og:title", content: "Lovable App" },
       { property: "og:description", content: "Lovable Generated Project" },
+      { title: "Shell Stakes — Real-Stakes Tank Arena" },
+      { name: "description", content: "Top-down PvP tank arena with tiered stakes, damage-share payouts, and a closing toxic zone." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
