@@ -243,12 +243,68 @@ function fire(state: GameState, tank: Tank) {
 
 function applyDamage(state: GameState, victim: Tank, attackerId: string, dmg: number) {
   if (!victim.alive) return;
-  if (victim.shieldHits > 0) { victim.shieldHits--; return; }
+  if (victim.shieldHits > 0) {
+    victim.shieldHits--;
+    spawnSparks(state, victim.x, victim.y, "rgba(160,210,255,1)", 8);
+    return;
+  }
   victim.hp -= dmg;
+  spawnSparks(state, victim.x, victim.y, "rgba(255,170,80,1)", 6);
   victim.damageDealtBy.set(attackerId, (victim.damageDealtBy.get(attackerId) || 0) + dmg);
   if (victim.hp <= 0) {
     victim.alive = false;
     resolveKill(state, victim, attackerId);
+  }
+}
+
+function spawnSparks(state: GameState, x: number, y: number, color: string, count: number) {
+  for (let i=0;i<count;i++){
+    const a = Math.random()*Math.PI*2;
+    const sp = rand(80, 260);
+    state.particles.push({
+      x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp,
+      life: rand(0.15,0.35), maxLife: 0.35,
+      size: rand(1.5,3.5), color, kind: "spark",
+    });
+  }
+}
+
+function spawnExplosion(state: GameState, x: number, y: number, radius: number) {
+  // Shock ring
+  state.particles.push({
+    x, y, vx:0, vy:0, life: 0.45, maxLife: 0.45,
+    size: radius * 0.8, color: "rgba(255,220,140,0.9)", kind: "ring",
+  });
+  // Fire
+  for (let i=0;i<28;i++){
+    const a = Math.random()*Math.PI*2;
+    const sp = rand(120, 360);
+    state.particles.push({
+      x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp,
+      life: rand(0.35,0.7), maxLife: 0.7,
+      size: rand(6,14), color: i%2 ? "rgba(255,140,40,0.95)" : "rgba(255,210,90,0.95)",
+      kind: "fire",
+    });
+  }
+  // Smoke
+  for (let i=0;i<18;i++){
+    const a = Math.random()*Math.PI*2;
+    const sp = rand(30, 100);
+    state.particles.push({
+      x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp,
+      life: rand(0.8,1.4), maxLife: 1.4,
+      size: rand(8,18), color: "rgba(60,55,55,0.75)", kind: "smoke",
+    });
+  }
+  // Debris
+  for (let i=0;i<10;i++){
+    const a = Math.random()*Math.PI*2;
+    const sp = rand(180, 420);
+    state.particles.push({
+      x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp,
+      life: rand(0.4,0.9), maxLife: 0.9,
+      size: rand(2,4), color: "rgba(40,40,40,1)", kind: "debris",
+    });
   }
 }
 
