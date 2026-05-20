@@ -5,6 +5,7 @@ export const ARENA = { w: 2000, h: 2000 };
 export interface Bullet {
   x: number; y: number; vx: number; vy: number;
   ownerId: string; damage: number; life: number;
+  color: string; trail: { x: number; y: number; t: number }[];
 }
 
 export interface Tank {
@@ -16,6 +17,8 @@ export interface Tank {
   vx: number; vy: number;
   angle: number;          // body
   turret: number;         // turret aim
+  trackOffset: number;    // for tread animation
+  muzzleFlash: number;    // remaining flash time
   hp: number; maxHp: number;
   cooldown: number;
   alive: boolean;
@@ -37,11 +40,17 @@ export interface Bounty {
 export interface KillFeedEntry { text: string; t: number; }
 export interface FloatText { x: number; y: number; text: string; color: string; t: number; }
 
+export interface Particle {
+  x: number; y: number; vx: number; vy: number; life: number; maxLife: number;
+  size: number; color: string; kind: "spark" | "smoke" | "fire" | "debris" | "ring";
+}
+
 export interface GameState {
   tanks: Tank[];
   bullets: Bullet[];
   walls: Wall[];
   bounties: Bounty[];
+  particles: Particle[];
   player: Tank | null;
   time: number;
   zoneRadius: number;
@@ -54,14 +63,25 @@ export interface GameState {
   gameOver: boolean;
   lastKillSummary: null | { victim: string; bounty: number; rows: { name: string; pct: number; earned: number; isPlayer: boolean }[] };
   paused: boolean;
+  shake: number;
+  mode: GameMode;
 }
+
+export type GameMode = "training" | "bronze" | "silver" | "elite";
+
+export const MODE_TIER_POOLS: Record<GameMode, TierId[]> = {
+  training: ["rookie","scout","soldier","bronze"],
+  bronze:   ["rookie","scout","soldier"],
+  silver:   ["bronze","silver","gold"],
+  elite:    ["gold","platinum","diamond"],
+};
 
 const BOT_NAMES = ["Vex","Rook","Nova","Hex","Brick","Ghost","Tank","Saber","Bolt","Crash","Fang","Jinx","Wolf","Rust","Zero","Kilo"];
 
 function rand(min: number, max: number) { return min + Math.random() * (max - min); }
 function dist(a: {x:number;y:number}, b: {x:number;y:number}) { return Math.hypot(a.x-b.x, a.y-b.y); }
 
-export function createInitialState(playerTierId: TierId, wallet: number): GameState {
+export function createInitialState(playerTierId: TierId, wallet: number, mode: GameMode = "training"): GameState {
   const walls: Wall[] = [];
   // Outer border handled via collision with arena bounds
   // Indestructible walls
@@ -97,7 +117,7 @@ export function createInitialState(playerTierId: TierId, wallet: number): GameSt
 
   // Bots: mix of tiers, weighted toward cheap
   const tanks: Tank[] = [player];
-  const tierPool: TierId[] = ["rookie","rookie","scout","scout","soldier","bronze","bronze","silver","gold","platinum","diamond"];
+  const tierPool: TierId[] = MODE_TIER_POOLS[mode];
   const botCount = 9;
   for (let i=0;i<botCount;i++){
     const t = getTier(tierPool[Math.floor(Math.random()*tierPool.length)]);
@@ -109,7 +129,7 @@ export function createInitialState(playerTierId: TierId, wallet: number): GameSt
   }
 
   return {
-    tanks, bullets: [], walls, bounties,
+    tanks, bullets: [], walls, bounties, particles: [],
     player,
     time: 0,
     zoneCx: ARENA.w/2, zoneCy: ARENA.h/2,
@@ -117,12 +137,14 @@ export function createInitialState(playerTierId: TierId, wallet: number): GameSt
     zoneTargetRadius: Math.hypot(ARENA.w,ARENA.h)/2,
     killFeed: [], floats: [], earnings: 0, wallet,
     gameOver: false, lastKillSummary: null, paused: false,
+    shake: 0, mode,
   };
 }
 
 function makeTank(id: string, isPlayer: boolean, name: string, tier: Tier, x: number, y: number): Tank {
   return {
     id, isPlayer, name, tier, x, y, vx:0, vy:0, angle: 0, turret: 0,
+    trackOffset: 0, muzzleFlash: 0,
     hp: tier.hp, maxHp: tier.hp, cooldown: 0, alive: true,
     damageDealtBy: new Map(), shieldHits: 0,
     buffs: { damage: 0, rapid: 0, speed: 0, cloak: 0 },
@@ -185,6 +207,8 @@ function fire(state: GameState, tank: Tank) {
   const cd = 1 / (tier.fireRate * rapid);
   if (tank.cooldown > 0) return;
   tank.cooldown = cd;
+  tank.muzzleFlash = 0.08;
+  if (tank.isPlayer) state.shake = Math.min(8, state.shake + 2);
   const damageMul = tank.buffs.damage > 0 ? 1.7 : 1;
   const bullets = tier.bullets;
   const spread = bullets === 1 ? 0 : 0.18;
@@ -199,14 +223,33 @@ function fire(state: GameState, tank: Tank) {
       ownerId: tank.id,
       damage: tier.damage * damageMul,
       life: 1.4,
+      color: tank.tier.color,
+      trail: [],
+    });
+  }
+  // Muzzle smoke
+  for (let i=0;i<5;i++){
+    const a = tank.turret + rand(-0.35,0.35);
+    const sp = rand(40, 140);
+    state.particles.push({
+      x: tank.x + Math.cos(tank.turret)*(tier.radius+8),
+      y: tank.y + Math.sin(tank.turret)*(tier.radius+8),
+      vx: Math.cos(a)*sp, vy: Math.sin(a)*sp,
+      life: rand(0.25,0.5), maxLife: 0.5,
+      size: rand(4,9), color: "rgba(220,200,160,0.7)", kind: "smoke",
     });
   }
 }
 
 function applyDamage(state: GameState, victim: Tank, attackerId: string, dmg: number) {
   if (!victim.alive) return;
-  if (victim.shieldHits > 0) { victim.shieldHits--; return; }
+  if (victim.shieldHits > 0) {
+    victim.shieldHits--;
+    spawnSparks(state, victim.x, victim.y, "rgba(160,210,255,1)", 8);
+    return;
+  }
   victim.hp -= dmg;
+  spawnSparks(state, victim.x, victim.y, "rgba(255,170,80,1)", 6);
   victim.damageDealtBy.set(attackerId, (victim.damageDealtBy.get(attackerId) || 0) + dmg);
   if (victim.hp <= 0) {
     victim.alive = false;
@@ -214,8 +257,61 @@ function applyDamage(state: GameState, victim: Tank, attackerId: string, dmg: nu
   }
 }
 
+function spawnSparks(state: GameState, x: number, y: number, color: string, count: number) {
+  for (let i=0;i<count;i++){
+    const a = Math.random()*Math.PI*2;
+    const sp = rand(80, 260);
+    state.particles.push({
+      x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp,
+      life: rand(0.15,0.35), maxLife: 0.35,
+      size: rand(1.5,3.5), color, kind: "spark",
+    });
+  }
+}
+
+function spawnExplosion(state: GameState, x: number, y: number, radius: number) {
+  // Shock ring
+  state.particles.push({
+    x, y, vx:0, vy:0, life: 0.45, maxLife: 0.45,
+    size: radius * 0.8, color: "rgba(255,220,140,0.9)", kind: "ring",
+  });
+  // Fire
+  for (let i=0;i<28;i++){
+    const a = Math.random()*Math.PI*2;
+    const sp = rand(120, 360);
+    state.particles.push({
+      x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp,
+      life: rand(0.35,0.7), maxLife: 0.7,
+      size: rand(6,14), color: i%2 ? "rgba(255,140,40,0.95)" : "rgba(255,210,90,0.95)",
+      kind: "fire",
+    });
+  }
+  // Smoke
+  for (let i=0;i<18;i++){
+    const a = Math.random()*Math.PI*2;
+    const sp = rand(30, 100);
+    state.particles.push({
+      x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp,
+      life: rand(0.8,1.4), maxLife: 1.4,
+      size: rand(8,18), color: "rgba(60,55,55,0.75)", kind: "smoke",
+    });
+  }
+  // Debris
+  for (let i=0;i<10;i++){
+    const a = Math.random()*Math.PI*2;
+    const sp = rand(180, 420);
+    state.particles.push({
+      x, y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp,
+      life: rand(0.4,0.9), maxLife: 0.9,
+      size: rand(2,4), color: "rgba(40,40,40,1)", kind: "debris",
+    });
+  }
+}
+
 function resolveKill(state: GameState, victim: Tank, killerId: string) {
   const bounty = victim.tier.cost * 0.95;
+  spawnExplosion(state, victim.x, victim.y, victim.tier.radius);
+  state.shake = Math.min(20, state.shake + 8 + victim.tier.radius * 0.2);
   const entries = Array.from(victim.damageDealtBy.entries());
   const totalDmg = entries.reduce((s, [,d]) => s+d, 0) || 1;
   // Top damager
@@ -325,6 +421,7 @@ function aiUpdate(state: GameState, bot: Tank, dt: number) {
 export function step(state: GameState, input: Input, dt: number) {
   if (state.gameOver || state.paused) return;
   state.time += dt;
+  state.shake = Math.max(0, state.shake - dt * 18);
 
   // Zone shrink
   state.zoneRadius = zoneRadiusAt(state.time);
@@ -350,6 +447,8 @@ export function step(state: GameState, input: Input, dt: number) {
   for (const t of state.tanks) {
     if (!t.alive) continue;
     t.cooldown = Math.max(0, t.cooldown - dt);
+    t.muzzleFlash = Math.max(0, t.muzzleFlash - dt);
+    t.trackOffset += dt * t.tier.speed * 0.04;
     (Object.keys(t.buffs) as (keyof typeof t.buffs)[]).forEach(k => t.buffs[k] = Math.max(0, t.buffs[k] - dt));
     if (!t.isPlayer) aiUpdate(state, t, dt);
     // zone damage
@@ -367,6 +466,9 @@ export function step(state: GameState, input: Input, dt: number) {
 
   // Bullets
   for (const b of state.bullets) {
+    b.trail.push({ x: b.x, y: b.y, t: 0.18 });
+    if (b.trail.length > 8) b.trail.shift();
+    for (const tp of b.trail) tp.t -= dt;
     b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
   }
   // Bullet collisions
@@ -395,6 +497,14 @@ export function step(state: GameState, input: Input, dt: number) {
   }
   state.bullets = state.bullets.filter(b => b.life > 0 && b.x >= 0 && b.y >= 0 && b.x <= ARENA.w && b.y <= ARENA.h);
   state.walls = state.walls.filter(w => !w.destructible || (w.hp ?? 1) > 0);
+
+  // Particles
+  for (const p of state.particles) {
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vx *= 0.94; p.vy *= 0.94;
+    p.life -= dt;
+  }
+  state.particles = state.particles.filter(p => p.life > 0);
 
   // Bounty pickups
   for (const b of state.bounties) {
