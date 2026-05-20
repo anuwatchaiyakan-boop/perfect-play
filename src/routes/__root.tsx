@@ -72,14 +72,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "Shell Stakes — Tank Arena" },
+      { name: "description", content: "Top-down tank arena with tiered stakes, damage-share payouts, and a closing toxic zone." },
+      { name: "author", content: "Shell Stakes" },
+      { property: "og:title", content: "Shell Stakes — Tank Arena" },
+      { property: "og:description", content: "Top-down tank arena prototype." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
-      { name: "twitter:site", content: "@Lovable" },
     ],
     links: [
       {
