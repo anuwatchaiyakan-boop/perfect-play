@@ -1,30 +1,44 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { TIERS, TierId } from "./tiers";
+import { GameMode, MODE_TIER_POOLS } from "./engine";
 
 interface Props {
   wallet: number;
+  mode: GameMode;
   lastEarnings: number | null;
   onStart: (tier: TierId) => void;
+  onBack: () => void;
   onTopUp: () => void;
 }
 
-export default function Lobby({ wallet, lastEarnings, onStart, onTopUp }: Props) {
-  const [selected, setSelected] = useState<TierId>("scout");
+const MODE_NAME: Record<GameMode,string> = {
+  training: "Training Range",
+  bronze: "Bronze Arena",
+  silver: "Silver Arena",
+  elite: "Elite Arena",
+};
+
+export default function Lobby({ wallet, mode, lastEarnings, onStart, onBack, onTopUp }: Props) {
+  const tiers = useMemo(() => TIERS.filter(t => MODE_TIER_POOLS[mode].includes(t.id)), [mode]);
+  const [selected, setSelected] = useState<TierId>(tiers[0].id);
   const tier = TIERS.find(t => t.id === selected)!;
   const canAfford = wallet >= tier.cost;
+  const isTraining = mode === "training";
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="max-w-6xl mx-auto px-6 py-10">
+        <button onClick={onBack} className="text-xs uppercase tracking-widest text-muted-foreground hover:text-foreground mb-6">← Change arena</button>
         <div className="flex items-end justify-between mb-10 flex-wrap gap-4">
           <div>
-            <div className="text-xs uppercase tracking-[0.3em] text-accent">Shell Stakes · Prototype</div>
+            <div className="text-xs uppercase tracking-[0.3em] text-accent">{MODE_NAME[mode]}</div>
             <h1 className="text-5xl md:text-6xl font-bold tracking-tight mt-2">
-              Pick a tank. <span className="text-primary">Pay the stake.</span><br/>Earn the bounty.
+              Pick your <span className="text-primary">tank</span>.
             </h1>
             <p className="text-muted-foreground mt-3 max-w-xl">
-              Top-down arena with 8 tank tiers, damage-share payouts, and a closing toxic zone.
-              Virtual currency — no real money involved.
+              {isTraining
+                ? "Free practice. No stake deducted, no earnings cashed out — sharpen aim and learn the toxic zone."
+                : "Pay your tank cost as a one-time stake. Max loss equals your stake. Earnings split by damage dealt."}
             </p>
           </div>
           <div className="bg-card border border-border rounded-xl p-5 min-w-[240px]">
@@ -39,10 +53,10 @@ export default function Lobby({ wallet, lastEarnings, onStart, onTopUp }: Props)
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {TIERS.map(t => {
+        <div className={`grid grid-cols-2 ${tiers.length>3 ? "md:grid-cols-4" : "md:grid-cols-3"} gap-3`}>
+          {tiers.map(t => {
             const active = t.id === selected;
-            const broke = wallet < t.cost;
+            const broke = !isTraining && wallet < t.cost;
             return (
               <button
                 key={t.id}
@@ -72,9 +86,9 @@ export default function Lobby({ wallet, lastEarnings, onStart, onTopUp }: Props)
         <div className="mt-8 flex items-center justify-between bg-card border border-border rounded-xl p-5 flex-wrap gap-4">
           <div>
             <div className="text-xs uppercase tracking-widest text-muted-foreground">Entering with</div>
-            <div className="text-2xl font-semibold">{tier.name} <span className="text-muted-foreground font-mono text-base">· ${tier.cost.toFixed(2)} stake</span></div>
+            <div className="text-2xl font-semibold">{tier.name} <span className="text-muted-foreground font-mono text-base">· {isTraining ? "no stake" : `$${tier.cost.toFixed(2)} stake`}</span></div>
             <div className="text-sm text-muted-foreground mt-1">
-              Max loss: <span className="font-mono">${tier.cost.toFixed(2)}</span>. Damage-share payouts apply. Toxic zone closes from 1:30.
+              {isTraining ? "No money risked or earned." : <>Max loss: <span className="font-mono">${tier.cost.toFixed(2)}</span>. Damage-share payouts apply.</>} Toxic zone closes from 1:30.
             </div>
           </div>
           <button
@@ -87,21 +101,6 @@ export default function Lobby({ wallet, lastEarnings, onStart, onTopUp }: Props)
           >
             {canAfford ? "Deploy Tank →" : "Insufficient Funds"}
           </button>
-        </div>
-
-        <div className="mt-10 grid md:grid-cols-3 gap-4 text-sm">
-          <div className="bg-card/60 border border-border rounded-xl p-4">
-            <div className="text-accent text-xs uppercase tracking-widest">Damage Share</div>
-            <p className="mt-1 text-muted-foreground">70% split by damage dealt · 25% to top damager · 5% killing blow.</p>
-          </div>
-          <div className="bg-card/60 border border-border rounded-xl p-4">
-            <div className="text-accent text-xs uppercase tracking-widest">Toxic Zone</div>
-            <p className="mt-1 text-muted-foreground">Map shrinks every 90s. Campers die. Stay moving.</p>
-          </div>
-          <div className="bg-card/60 border border-border rounded-xl p-4">
-            <div className="text-accent text-xs uppercase tracking-widest">Bounties</div>
-            <p className="mt-1 text-muted-foreground">Pick up Damage, Rapid, Speed, Shield, Heal, Cash buffs scattered around the arena.</p>
-          </div>
         </div>
       </div>
     </div>
