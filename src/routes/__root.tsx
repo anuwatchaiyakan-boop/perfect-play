@@ -76,9 +76,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "description", content: "Top-down tank arena with tiered stakes, damage-share payouts, and a closing toxic zone." },
       { name: "author", content: "Shell Stakes" },
       { property: "og:title", content: "Shell Stakes — Tank Arena" },
-      { property: "og:description", content: "Top-down tank arena prototype." },
+      { property: "og:description", content: "Top-down tank arena with tiered stakes, damage-share payouts, and a closing toxic zone." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
+      { name: "twitter:title", content: "Shell Stakes — Tank Arena" },
+      { name: "twitter:description", content: "Top-down tank arena with tiered stakes, damage-share payouts, and a closing toxic zone." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/7209c7ce-e6d2-46d1-8c9b-3719608da10f/id-preview-1d95769b--5fc5e587-6148-4544-840a-98d015231396.lovable.app-1779287481602.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/7209c7ce-e6d2-46d1-8c9b-3719608da10f/id-preview-1d95769b--5fc5e587-6148-4544-840a-98d015231396.lovable.app-1779287481602.png" },
     ],
     links: [
       {
