@@ -5,6 +5,7 @@ export const ARENA = { w: 2000, h: 2000 };
 export interface Bullet {
   x: number; y: number; vx: number; vy: number;
   ownerId: string; damage: number; life: number;
+  color: string; trail: { x: number; y: number; t: number }[];
 }
 
 export interface Tank {
@@ -16,6 +17,8 @@ export interface Tank {
   vx: number; vy: number;
   angle: number;          // body
   turret: number;         // turret aim
+  trackOffset: number;    // for tread animation
+  muzzleFlash: number;    // remaining flash time
   hp: number; maxHp: number;
   cooldown: number;
   alive: boolean;
@@ -37,11 +40,17 @@ export interface Bounty {
 export interface KillFeedEntry { text: string; t: number; }
 export interface FloatText { x: number; y: number; text: string; color: string; t: number; }
 
+export interface Particle {
+  x: number; y: number; vx: number; vy: number; life: number; maxLife: number;
+  size: number; color: string; kind: "spark" | "smoke" | "fire" | "debris" | "ring";
+}
+
 export interface GameState {
   tanks: Tank[];
   bullets: Bullet[];
   walls: Wall[];
   bounties: Bounty[];
+  particles: Particle[];
   player: Tank | null;
   time: number;
   zoneRadius: number;
@@ -54,14 +63,25 @@ export interface GameState {
   gameOver: boolean;
   lastKillSummary: null | { victim: string; bounty: number; rows: { name: string; pct: number; earned: number; isPlayer: boolean }[] };
   paused: boolean;
+  shake: number;
+  mode: GameMode;
 }
+
+export type GameMode = "training" | "bronze" | "silver" | "elite";
+
+export const MODE_TIER_POOLS: Record<GameMode, TierId[]> = {
+  training: ["rookie","scout","soldier","bronze"],
+  bronze:   ["rookie","scout","soldier"],
+  silver:   ["bronze","silver","gold"],
+  elite:    ["gold","platinum","diamond"],
+};
 
 const BOT_NAMES = ["Vex","Rook","Nova","Hex","Brick","Ghost","Tank","Saber","Bolt","Crash","Fang","Jinx","Wolf","Rust","Zero","Kilo"];
 
 function rand(min: number, max: number) { return min + Math.random() * (max - min); }
 function dist(a: {x:number;y:number}, b: {x:number;y:number}) { return Math.hypot(a.x-b.x, a.y-b.y); }
 
-export function createInitialState(playerTierId: TierId, wallet: number): GameState {
+export function createInitialState(playerTierId: TierId, wallet: number, mode: GameMode = "training"): GameState {
   const walls: Wall[] = [];
   // Outer border handled via collision with arena bounds
   // Indestructible walls
