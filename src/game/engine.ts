@@ -421,6 +421,7 @@ function aiUpdate(state: GameState, bot: Tank, dt: number) {
 export function step(state: GameState, input: Input, dt: number) {
   if (state.gameOver || state.paused) return;
   state.time += dt;
+  state.shake = Math.max(0, state.shake - dt * 18);
 
   // Zone shrink
   state.zoneRadius = zoneRadiusAt(state.time);
@@ -446,6 +447,8 @@ export function step(state: GameState, input: Input, dt: number) {
   for (const t of state.tanks) {
     if (!t.alive) continue;
     t.cooldown = Math.max(0, t.cooldown - dt);
+    t.muzzleFlash = Math.max(0, t.muzzleFlash - dt);
+    t.trackOffset += dt * t.tier.speed * 0.04;
     (Object.keys(t.buffs) as (keyof typeof t.buffs)[]).forEach(k => t.buffs[k] = Math.max(0, t.buffs[k] - dt));
     if (!t.isPlayer) aiUpdate(state, t, dt);
     // zone damage
@@ -463,6 +466,9 @@ export function step(state: GameState, input: Input, dt: number) {
 
   // Bullets
   for (const b of state.bullets) {
+    b.trail.push({ x: b.x, y: b.y, t: 0.18 });
+    if (b.trail.length > 8) b.trail.shift();
+    for (const tp of b.trail) tp.t -= dt;
     b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
   }
   // Bullet collisions
@@ -491,6 +497,14 @@ export function step(state: GameState, input: Input, dt: number) {
   }
   state.bullets = state.bullets.filter(b => b.life > 0 && b.x >= 0 && b.y >= 0 && b.x <= ARENA.w && b.y <= ARENA.h);
   state.walls = state.walls.filter(w => !w.destructible || (w.hp ?? 1) > 0);
+
+  // Particles
+  for (const p of state.particles) {
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vx *= 0.94; p.vy *= 0.94;
+    p.life -= dt;
+  }
+  state.particles = state.particles.filter(p => p.life > 0);
 
   // Bounty pickups
   for (const b of state.bounties) {
