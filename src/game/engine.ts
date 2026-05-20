@@ -254,6 +254,8 @@ function applyDamage(state: GameState, victim: Tank, attackerId: string, dmg: nu
 
 function resolveKill(state: GameState, victim: Tank, killerId: string) {
   const bounty = victim.tier.cost * 0.95;
+  spawnExplosion(state, victim.x, victim.y, victim.tier.radius);
+  state.shake = Math.min(20, state.shake + 8 + victim.tier.radius * 0.2);
   const entries = Array.from(victim.damageDealtBy.entries());
   const totalDmg = entries.reduce((s, [,d]) => s+d, 0) || 1;
   // Top damager
