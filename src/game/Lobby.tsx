@@ -1,6 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { TIERS, TierId } from "./tiers";
-import { GameMode, MODE_TIER_POOLS } from "./engine";
+import { GameMode } from "./engine";
+import { getPlayerIdentity, setPlayerName } from "./multiplayer";
 
 interface Props {
   wallet: number;
@@ -19,8 +20,11 @@ const MODE_NAME: Record<GameMode,string> = {
 };
 
 export default function Lobby({ wallet, mode, lastEarnings, onStart, onBack, onTopUp }: Props) {
-  const tiers = useMemo(() => TIERS.filter(t => MODE_TIER_POOLS[mode].includes(t.id)), [mode]);
+  // Any tank can be selected in any arena.
+  const tiers = useMemo(() => TIERS, []);
   const [selected, setSelected] = useState<TierId>(tiers[0].id);
+  const [name, setName] = useState<string>(() => getPlayerIdentity().name);
+  useEffect(() => { setPlayerName(name); }, [name]);
   const tier = TIERS.find(t => t.id === selected)!;
   const canAfford = wallet >= tier.cost;
   const isTraining = mode === "training";
@@ -50,10 +54,20 @@ export default function Lobby({ wallet, mode, lastEarnings, onStart, onBack, onT
             <button onClick={onTopUp} className="mt-3 w-full text-xs uppercase tracking-widest border border-border rounded-md py-2 hover:bg-secondary transition">
               Top up +$20
             </button>
+            {mode !== "training" && (
+              <div className="mt-3">
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Callsign</div>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value.slice(0,20))}
+                  className="w-full bg-background border border-border rounded-md px-2 py-1 text-sm font-mono"
+                />
+              </div>
+            )}
           </div>
         </div>
 
-        <div className={`grid grid-cols-2 ${tiers.length>3 ? "md:grid-cols-4" : "md:grid-cols-3"} gap-3`}>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {tiers.map(t => {
             const active = t.id === selected;
             const broke = !isTraining && wallet < t.cost;
