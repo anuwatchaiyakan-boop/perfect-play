@@ -155,6 +155,13 @@ export default function Arena({ tier, wallet, mode, onExit }: Props) {
           </div>
         </div>
       )}
+      {mode !== "training" && st.tanks.filter(t => !t.isPlayer && t.alive).length === 0 && !st.gameOver && (
+        <div className="absolute top-24 left-1/2 -translate-x-1/2 bg-card/90 backdrop-blur border border-border rounded-lg px-5 py-3 text-center shadow-lg pointer-events-none">
+          <div className="text-[10px] uppercase tracking-widest text-accent">Live arena</div>
+          <div className="text-sm text-card-foreground mt-1">Waiting for real opponents to join…</div>
+          <div className="text-[11px] text-muted-foreground mt-0.5">Share the link or pick Training to fight bots.</div>
+        </div>
+      )}
       {st.gameOver && (
         <div className="absolute inset-0 bg-background/85 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-card border border-border rounded-2xl p-8 max-w-md w-full text-card-foreground shadow-2xl">
