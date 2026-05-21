@@ -229,17 +229,15 @@ function fire(state: GameState, tank: Tank) {
   for (let i=0; i<bullets; i++) {
     const off = bullets === 1 ? 0 : (i - (bullets-1)/2) * spread;
     const a = tank.turret + off;
-    state.bullets.push({
-      x: tank.x + Math.cos(a) * (tier.radius + 4),
-      y: tank.y + Math.sin(a) * (tier.radius + 4),
-      vx: Math.cos(a) * tier.bulletSpeed,
-      vy: Math.sin(a) * tier.bulletSpeed,
-      ownerId: tank.id,
-      damage: tier.damage * damageMul,
-      life: 1.4,
-      color: tank.tier.color,
-      trail: [],
-    });
+    const bx = tank.x + Math.cos(a) * (tier.radius + 4);
+    const by = tank.y + Math.sin(a) * (tier.radius + 4);
+    const vx = Math.cos(a) * tier.bulletSpeed;
+    const vy = Math.sin(a) * tier.bulletSpeed;
+    const dmg = tier.damage * damageMul;
+    state.bullets.push({ x:bx, y:by, vx, vy, ownerId: tank.id, damage: dmg, life: 1.4, color: tank.tier.color, trail: [] });
+    if (tank.isPlayer && state.outgoing) {
+      state.outgoing.fires.push({ x:bx, y:by, vx, vy, damage: dmg, color: tank.tier.color, ownerId: tank.id });
+    }
   }
   // Muzzle smoke
   for (let i=0;i<5;i++){
