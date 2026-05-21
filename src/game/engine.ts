@@ -566,8 +566,9 @@ export function step(state: GameState, input: Input, dt: number) {
     t.muzzleFlash = Math.max(0, t.muzzleFlash - dt);
     t.trackOffset += dt * t.tier.speed * 0.04;
     (Object.keys(t.buffs) as (keyof typeof t.buffs)[]).forEach(k => t.buffs[k] = Math.max(0, t.buffs[k] - dt));
-    if (!t.isPlayer) aiUpdate(state, t, dt);
+    if (!t.isPlayer && !t.isRemote) aiUpdate(state, t, dt);
     // zone damage
+    if (t.isRemote) continue; // remote players own their own HP / zone damage
     const dz = Math.hypot(t.x - state.zoneCx, t.y - state.zoneCy);
     if (dz > state.zoneRadius) {
       const dps = zoneDamageAt(state.time);
@@ -631,6 +632,7 @@ export function step(state: GameState, input: Input, dt: number) {
     }
     for (const t of state.tanks) {
       if (!t.alive) continue;
+      if (t.isRemote) continue; // remote players claim bounties on their own client
       if (Math.hypot(t.x - b.x, t.y - b.y) < t.tier.radius + 14) {
         applyBountyToTank(state, t, b.kind);
         b.active = false; b.respawn = 12;
@@ -640,9 +642,9 @@ export function step(state: GameState, input: Input, dt: number) {
   }
 
   // Respawn bots so arena stays lively
-  const aliveBots = state.tanks.filter(t => !t.isPlayer && t.alive).length;
-  if (aliveBots < 7 && Math.random() < 0.02) {
-    const pool: TierId[] = ["rookie","scout","soldier","bronze","silver","gold","platinum","diamond"];
+  const aliveOthers = state.tanks.filter(t => !t.isPlayer && t.alive).length;
+  if (aliveOthers < 7 && Math.random() < 0.02) {
+    const pool: TierId[] = MODE_TIER_POOLS[state.mode] || ALL_BOT_TIERS;
     const tier = getTier(pool[Math.floor(Math.random()*pool.length)]);
     const a = Math.random()*Math.PI*2;
     const r = Math.min(state.zoneRadius - 100, 800);
@@ -650,6 +652,14 @@ export function step(state: GameState, input: Input, dt: number) {
     const ny = state.zoneCy + Math.sin(a)*r;
     state.tanks.push(makeTank("b"+Date.now()+Math.random(), false, BOT_NAMES[Math.floor(Math.random()*BOT_NAMES.length)], tier, nx, ny));
   }
+
+  // Prune stale remote players we haven't heard from in ~5s
+  const now = performance.now();
+  state.tanks = state.tanks.filter(t => {
+    if (!t.isRemote) return true;
+    const ls = (t as any).lastSeen as number | undefined;
+    return !ls || now - ls < 5000;
+  });
 
   // Kill feed / floats decay
   state.killFeed.forEach(k => k.t -= dt);
