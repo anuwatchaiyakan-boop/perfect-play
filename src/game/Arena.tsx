@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ARENA, GameState, Input, createInitialState, step, GameMode } from "./engine";
 import { TierId } from "./tiers";
+import { MultiplayerSession, getPlayerIdentity } from "./multiplayer";
 
 interface Props {
   tier: TierId;
@@ -15,9 +16,17 @@ const BOUNTY_GLYPH: Record<string,string> = {
 
 export default function Arena({ tier, wallet, mode, onExit }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const stateRef = useRef<GameState>(createInitialState(tier, wallet, mode));
+  const identity = useRef(getPlayerIdentity());
+  const stateRef = useRef<GameState>(createInitialState(tier, wallet, mode, identity.current.id, identity.current.name));
   const inputRef = useRef<Input>({ up:false,down:false,left:false,right:false,fire:false,aimX:0,aimY:0 });
+  const sessionRef = useRef<MultiplayerSession | null>(null);
   const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const session = new MultiplayerSession(mode, stateRef.current);
+    sessionRef.current = session;
+    return () => { session.destroy(); sessionRef.current = null; };
+  }, [mode]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent, down: boolean) => {
@@ -76,6 +85,7 @@ export default function Arena({ tier, wallet, mode, onExit }: Props) {
       last = now;
       const st = stateRef.current;
       step(st, inputRef.current, dt);
+      sessionRef.current?.tick(dt);
       render(ctx, st, canvas, v);
       setTick(t => (t+1) % 1000000);
       raf = requestAnimationFrame(loop);

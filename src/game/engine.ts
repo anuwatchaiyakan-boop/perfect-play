@@ -11,6 +11,7 @@ export interface Bullet {
 export interface Tank {
   id: string;
   isPlayer: boolean;
+  isRemote?: boolean;
   name: string;
   tier: Tier;
   x: number; y: number;
@@ -65,13 +66,24 @@ export interface GameState {
   paused: boolean;
   shake: number;
   mode: GameMode;
+  // Outgoing network queue (filled by engine, drained by MultiplayerSession)
+  outgoing?: {
+    fires: { x:number;y:number;vx:number;vy:number;damage:number;color:string;ownerId:string }[];
+    hits: { targetId:string; attackerId:string; attackerName:string; dmg:number }[];
+    death: null | { victimId:string; victimName:string; tierCost:number; damageDealtBy:[string,string,number][] };
+  };
+  // Local identity for multiplayer
+  netId?: string;
+  netName?: string;
 }
 
 export type GameMode = "training" | "bronze" | "silver" | "elite";
 
+const ALL_BOT_TIERS: TierId[] = ["rookie","scout","soldier","bronze","silver","gold","platinum","diamond"];
 export const MODE_TIER_POOLS: Record<GameMode, TierId[]> = {
+  // Bot spawn pools per arena (lobby now allows ALL tiers everywhere)
   training: ["rookie","scout","soldier","bronze"],
-  bronze:   ["rookie","scout","soldier"],
+  bronze:   ["rookie","scout","soldier","bronze"],
   silver:   ["bronze","silver","gold"],
   elite:    ["gold","platinum","diamond"],
 };
@@ -81,7 +93,7 @@ const BOT_NAMES = ["Vex","Rook","Nova","Hex","Brick","Ghost","Tank","Saber","Bol
 function rand(min: number, max: number) { return min + Math.random() * (max - min); }
 function dist(a: {x:number;y:number}, b: {x:number;y:number}) { return Math.hypot(a.x-b.x, a.y-b.y); }
 
-export function createInitialState(playerTierId: TierId, wallet: number, mode: GameMode = "training"): GameState {
+export function createInitialState(playerTierId: TierId, wallet: number, mode: GameMode = "training", netId?: string, netName?: string): GameState {
   const walls: Wall[] = [];
   // Outer border handled via collision with arena bounds
   // Indestructible walls
@@ -113,7 +125,7 @@ export function createInitialState(playerTierId: TierId, wallet: number, mode: G
   }));
 
   const playerTier = getTier(playerTierId);
-  const player = makeTank("player", true, "You", playerTier, ARENA.w/2 - 200, ARENA.h/2);
+  const player = makeTank(netId || "player", true, netName || "You", playerTier, ARENA.w/2 - 200, ARENA.h/2);
 
   // Bots: mix of tiers, weighted toward cheap
   const tanks: Tank[] = [player];
@@ -138,6 +150,8 @@ export function createInitialState(playerTierId: TierId, wallet: number, mode: G
     killFeed: [], floats: [], earnings: 0, wallet,
     gameOver: false, lastKillSummary: null, paused: false,
     shake: 0, mode,
+    outgoing: { fires: [], hits: [], death: null },
+    netId, netName,
   };
 }
 
@@ -215,17 +229,15 @@ function fire(state: GameState, tank: Tank) {
   for (let i=0; i<bullets; i++) {
     const off = bullets === 1 ? 0 : (i - (bullets-1)/2) * spread;
     const a = tank.turret + off;
-    state.bullets.push({
-      x: tank.x + Math.cos(a) * (tier.radius + 4),
-      y: tank.y + Math.sin(a) * (tier.radius + 4),
-      vx: Math.cos(a) * tier.bulletSpeed,
-      vy: Math.sin(a) * tier.bulletSpeed,
-      ownerId: tank.id,
-      damage: tier.damage * damageMul,
-      life: 1.4,
-      color: tank.tier.color,
-      trail: [],
-    });
+    const bx = tank.x + Math.cos(a) * (tier.radius + 4);
+    const by = tank.y + Math.sin(a) * (tier.radius + 4);
+    const vx = Math.cos(a) * tier.bulletSpeed;
+    const vy = Math.sin(a) * tier.bulletSpeed;
+    const dmg = tier.damage * damageMul;
+    state.bullets.push({ x:bx, y:by, vx, vy, ownerId: tank.id, damage: dmg, life: 1.4, color: tank.tier.color, trail: [] });
+    if (tank.isPlayer && state.outgoing) {
+      state.outgoing.fires.push({ x:bx, y:by, vx, vy, damage: dmg, color: tank.tier.color, ownerId: tank.id });
+    }
   }
   // Muzzle smoke
   for (let i=0;i<5;i++){
@@ -243,6 +255,21 @@ function fire(state: GameState, tank: Tank) {
 
 function applyDamage(state: GameState, victim: Tank, attackerId: string, dmg: number) {
   if (!victim.alive) return;
+  // If victim is a remote real player, do NOT mutate locally — broadcast the hit
+  // and let the owning client apply damage authoritatively.
+  if (victim.isRemote) {
+    spawnSparks(state, victim.x, victim.y, "rgba(255,170,80,1)", 6);
+    const attacker = state.tanks.find(t => t.id === attackerId);
+    if (attacker?.isPlayer && state.outgoing) {
+      state.outgoing.hits.push({
+        targetId: victim.id,
+        attackerId,
+        attackerName: attacker.name,
+        dmg,
+      });
+    }
+    return;
+  }
   if (victim.shieldHits > 0) {
     victim.shieldHits--;
     spawnSparks(state, victim.x, victim.y, "rgba(160,210,255,1)", 8);
@@ -342,7 +369,96 @@ function resolveKill(state: GameState, victim: Tank, killerId: string) {
 
   if (victim.isPlayer) {
     state.gameOver = true;
+    // Broadcast our death so other clients can settle payouts.
+    if (state.outgoing) {
+      const dmgMap: [string, string, number][] = entries.map(([aid, d]) => {
+        const a = state.tanks.find(t => t.id === aid);
+        return [aid, a?.name ?? "?", d] as [string, string, number];
+      });
+      state.outgoing.death = {
+        victimId: victim.id,
+        victimName: victim.name,
+        tierCost: victim.tier.cost,
+        damageDealtBy: dmgMap,
+      };
+    }
   }
+}
+
+// Called by MultiplayerSession when a network hit lands on the local player.
+export function applyRemoteDamage(state: GameState, attackerId: string, attackerName: string, dmg: number) {
+  const victim = state.player;
+  if (!victim || !victim.alive) return;
+  if (victim.shieldHits > 0) {
+    victim.shieldHits--;
+    spawnSparks(state, victim.x, victim.y, "rgba(160,210,255,1)", 8);
+    return;
+  }
+  // Make sure the attacker is tracked even if we haven't seen their state yet.
+  if (!state.tanks.find(t => t.id === attackerId)) {
+    // synthesise a stub so resolveKill can attribute the name
+    state.tanks.push(makeTank(attackerId, false, attackerName, getTier("rookie"), -9999, -9999));
+    const stub = state.tanks[state.tanks.length-1];
+    stub.isRemote = true; stub.alive = false;
+  }
+  victim.hp -= dmg;
+  spawnSparks(state, victim.x, victim.y, "rgba(255,170,80,1)", 6);
+  victim.damageDealtBy.set(attackerId, (victim.damageDealtBy.get(attackerId) || 0) + dmg);
+  if (victim.hp <= 0) {
+    victim.alive = false;
+    resolveKill(state, victim, attackerId);
+  }
+}
+
+// Called by MultiplayerSession when a remote player announces their death.
+// Awards the local player their share if they contributed damage.
+export function resolveRemoteKill(state: GameState, payload: { victimId:string; victimName:string; tierCost:number; damageDealtBy:[string,string,number][] }) {
+  const bounty = payload.tierCost * 0.95;
+  const total = payload.damageDealtBy.reduce((s,[,,d]) => s+d, 0) || 1;
+  const top = payload.damageDealtBy.reduce((a,b) => b[2] > a[2] ? b : a, payload.damageDealtBy[0]);
+  const localId = state.netId || state.player?.id;
+  for (const [aid, , dmg] of payload.damageDealtBy) {
+    if (aid !== localId) continue;
+    const share = dmg / total;
+    let earned = bounty * 0.70 * share;
+    if (top && top[0] === aid) earned += bounty * 0.25;
+    state.earnings += earned;
+    state.wallet += earned;
+    if (state.player) {
+      state.floats.push({ x: state.player.x, y: state.player.y - 30, text: "+$"+earned.toFixed(2), color: "var(--tier-gold)", t: 1.4 });
+    }
+  }
+  // Mark the remote victim dead locally
+  const v = state.tanks.find(t => t.id === payload.victimId);
+  if (v) { v.alive = false; spawnExplosion(state, v.x, v.y, v.tier.radius); }
+  state.killFeed.unshift({ text: `${top?.[1] ?? "?"} eliminated ${payload.victimName} ($${payload.tierCost.toFixed(2)})`, t: 5 });
+  if (state.killFeed.length > 6) state.killFeed.pop();
+}
+
+// Called by MultiplayerSession to push/refresh a remote player tank in the local sim.
+export function upsertRemoteTank(state: GameState, p: { id:string; name:string; tierId: TierId; x:number; y:number; angle:number; turret:number; hp:number; alive:boolean }) {
+  let t = state.tanks.find(t => t.id === p.id);
+  if (!t) {
+    const tier = getTier(p.tierId);
+    t = makeTank(p.id, false, p.name, tier, p.x, p.y);
+    t.isRemote = true;
+    state.tanks.push(t);
+  } else if (!t.isRemote) {
+    return; // never overwrite local player
+  }
+  t.name = p.name;
+  t.x = p.x; t.y = p.y; t.angle = p.angle; t.turret = p.turret;
+  t.hp = p.hp; t.alive = p.alive;
+  (t as any).lastSeen = performance.now();
+}
+
+// Called by MultiplayerSession when a remote player fires.
+export function ingestRemoteBullet(state: GameState, b: { x:number;y:number;vx:number;vy:number;damage:number;color:string;ownerId:string }) {
+  if (b.ownerId === state.netId) return;
+  state.bullets.push({ x:b.x, y:b.y, vx:b.vx, vy:b.vy, ownerId:b.ownerId, damage:b.damage, life:1.4, color:b.color, trail:[] });
+  // light muzzle flash on remote firing tank
+  const t = state.tanks.find(t => t.id === b.ownerId);
+  if (t) t.muzzleFlash = 0.08;
 }
 
 function applyBountyToTank(state: GameState, tank: Tank, kind: BountyKind) {
@@ -450,8 +566,9 @@ export function step(state: GameState, input: Input, dt: number) {
     t.muzzleFlash = Math.max(0, t.muzzleFlash - dt);
     t.trackOffset += dt * t.tier.speed * 0.04;
     (Object.keys(t.buffs) as (keyof typeof t.buffs)[]).forEach(k => t.buffs[k] = Math.max(0, t.buffs[k] - dt));
-    if (!t.isPlayer) aiUpdate(state, t, dt);
+    if (!t.isPlayer && !t.isRemote) aiUpdate(state, t, dt);
     // zone damage
+    if (t.isRemote) continue; // remote players own their own HP / zone damage
     const dz = Math.hypot(t.x - state.zoneCx, t.y - state.zoneCy);
     if (dz > state.zoneRadius) {
       const dps = zoneDamageAt(state.time);
@@ -515,6 +632,7 @@ export function step(state: GameState, input: Input, dt: number) {
     }
     for (const t of state.tanks) {
       if (!t.alive) continue;
+      if (t.isRemote) continue; // remote players claim bounties on their own client
       if (Math.hypot(t.x - b.x, t.y - b.y) < t.tier.radius + 14) {
         applyBountyToTank(state, t, b.kind);
         b.active = false; b.respawn = 12;
@@ -524,9 +642,9 @@ export function step(state: GameState, input: Input, dt: number) {
   }
 
   // Respawn bots so arena stays lively
-  const aliveBots = state.tanks.filter(t => !t.isPlayer && t.alive).length;
-  if (aliveBots < 7 && Math.random() < 0.02) {
-    const pool: TierId[] = ["rookie","scout","soldier","bronze","silver","gold","platinum","diamond"];
+  const aliveOthers = state.tanks.filter(t => !t.isPlayer && t.alive).length;
+  if (aliveOthers < 7 && Math.random() < 0.02) {
+    const pool: TierId[] = MODE_TIER_POOLS[state.mode] || ALL_BOT_TIERS;
     const tier = getTier(pool[Math.floor(Math.random()*pool.length)]);
     const a = Math.random()*Math.PI*2;
     const r = Math.min(state.zoneRadius - 100, 800);
@@ -534,6 +652,14 @@ export function step(state: GameState, input: Input, dt: number) {
     const ny = state.zoneCy + Math.sin(a)*r;
     state.tanks.push(makeTank("b"+Date.now()+Math.random(), false, BOT_NAMES[Math.floor(Math.random()*BOT_NAMES.length)], tier, nx, ny));
   }
+
+  // Prune stale remote players we haven't heard from in ~5s
+  const now = performance.now();
+  state.tanks = state.tanks.filter(t => {
+    if (!t.isRemote) return true;
+    const ls = (t as any).lastSeen as number | undefined;
+    return !ls || now - ls < 5000;
+  });
 
   // Kill feed / floats decay
   state.killFeed.forEach(k => k.t -= dt);
