@@ -369,7 +369,96 @@ function resolveKill(state: GameState, victim: Tank, killerId: string) {
 
   if (victim.isPlayer) {
     state.gameOver = true;
+    // Broadcast our death so other clients can settle payouts.
+    if (state.outgoing) {
+      const dmgMap: [string, string, number][] = entries.map(([aid, d]) => {
+        const a = state.tanks.find(t => t.id === aid);
+        return [aid, a?.name ?? "?", d] as [string, string, number];
+      });
+      state.outgoing.death = {
+        victimId: victim.id,
+        victimName: victim.name,
+        tierCost: victim.tier.cost,
+        damageDealtBy: dmgMap,
+      };
+    }
   }
+}
+
+// Called by MultiplayerSession when a network hit lands on the local player.
+export function applyRemoteDamage(state: GameState, attackerId: string, attackerName: string, dmg: number) {
+  const victim = state.player;
+  if (!victim || !victim.alive) return;
+  if (victim.shieldHits > 0) {
+    victim.shieldHits--;
+    spawnSparks(state, victim.x, victim.y, "rgba(160,210,255,1)", 8);
+    return;
+  }
+  // Make sure the attacker is tracked even if we haven't seen their state yet.
+  if (!state.tanks.find(t => t.id === attackerId)) {
+    // synthesise a stub so resolveKill can attribute the name
+    state.tanks.push(makeTank(attackerId, false, attackerName, getTier("rookie"), -9999, -9999));
+    const stub = state.tanks[state.tanks.length-1];
+    stub.isRemote = true; stub.alive = false;
+  }
+  victim.hp -= dmg;
+  spawnSparks(state, victim.x, victim.y, "rgba(255,170,80,1)", 6);
+  victim.damageDealtBy.set(attackerId, (victim.damageDealtBy.get(attackerId) || 0) + dmg);
+  if (victim.hp <= 0) {
+    victim.alive = false;
+    resolveKill(state, victim, attackerId);
+  }
+}
+
+// Called by MultiplayerSession when a remote player announces their death.
+// Awards the local player their share if they contributed damage.
+export function resolveRemoteKill(state: GameState, payload: { victimId:string; victimName:string; tierCost:number; damageDealtBy:[string,string,number][] }) {
+  const bounty = payload.tierCost * 0.95;
+  const total = payload.damageDealtBy.reduce((s,[,,d]) => s+d, 0) || 1;
+  const top = payload.damageDealtBy.reduce((a,b) => b[2] > a[2] ? b : a, payload.damageDealtBy[0]);
+  const localId = state.netId || state.player?.id;
+  for (const [aid, , dmg] of payload.damageDealtBy) {
+    if (aid !== localId) continue;
+    const share = dmg / total;
+    let earned = bounty * 0.70 * share;
+    if (top && top[0] === aid) earned += bounty * 0.25;
+    state.earnings += earned;
+    state.wallet += earned;
+    if (state.player) {
+      state.floats.push({ x: state.player.x, y: state.player.y - 30, text: "+$"+earned.toFixed(2), color: "var(--tier-gold)", t: 1.4 });
+    }
+  }
+  // Mark the remote victim dead locally
+  const v = state.tanks.find(t => t.id === payload.victimId);
+  if (v) { v.alive = false; spawnExplosion(state, v.x, v.y, v.tier.radius); }
+  state.killFeed.unshift({ text: `${top?.[1] ?? "?"} eliminated ${payload.victimName} ($${payload.tierCost.toFixed(2)})`, t: 5 });
+  if (state.killFeed.length > 6) state.killFeed.pop();
+}
+
+// Called by MultiplayerSession to push/refresh a remote player tank in the local sim.
+export function upsertRemoteTank(state: GameState, p: { id:string; name:string; tierId: TierId; x:number; y:number; angle:number; turret:number; hp:number; alive:boolean }) {
+  let t = state.tanks.find(t => t.id === p.id);
+  if (!t) {
+    const tier = getTier(p.tierId);
+    t = makeTank(p.id, false, p.name, tier, p.x, p.y);
+    t.isRemote = true;
+    state.tanks.push(t);
+  } else if (!t.isRemote) {
+    return; // never overwrite local player
+  }
+  t.name = p.name;
+  t.x = p.x; t.y = p.y; t.angle = p.angle; t.turret = p.turret;
+  t.hp = p.hp; t.alive = p.alive;
+  (t as any).lastSeen = performance.now();
+}
+
+// Called by MultiplayerSession when a remote player fires.
+export function ingestRemoteBullet(state: GameState, b: { x:number;y:number;vx:number;vy:number;damage:number;color:string;ownerId:string }) {
+  if (b.ownerId === state.netId) return;
+  state.bullets.push({ x:b.x, y:b.y, vx:b.vx, vy:b.vy, ownerId:b.ownerId, damage:b.damage, life:1.4, color:b.color, trail:[] });
+  // light muzzle flash on remote firing tank
+  const t = state.tanks.find(t => t.id === b.ownerId);
+  if (t) t.muzzleFlash = 0.08;
 }
 
 function applyBountyToTank(state: GameState, tank: Tank, kind: BountyKind) {
