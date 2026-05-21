@@ -129,15 +129,18 @@ export function createInitialState(playerTierId: TierId, wallet: number, mode: G
 
   // Bots: mix of tiers, weighted toward cheap
   const tanks: Tank[] = [player];
-  const tierPool: TierId[] = MODE_TIER_POOLS[mode];
-  const botCount = 9;
-  for (let i=0;i<botCount;i++){
-    const t = getTier(tierPool[Math.floor(Math.random()*tierPool.length)]);
-    const angle = (i / botCount) * Math.PI * 2;
-    const r = 700 + rand(-50, 50);
-    const x = ARENA.w/2 + Math.cos(angle)*r;
-    const y = ARENA.h/2 + Math.sin(angle)*r;
-    tanks.push(makeTank("b"+i, false, BOT_NAMES[i % BOT_NAMES.length], t, x, y));
+  // Only training mode spawns bots. Live arenas are real-player only.
+  if (mode === "training") {
+    const tierPool: TierId[] = MODE_TIER_POOLS[mode];
+    const botCount = 9;
+    for (let i=0;i<botCount;i++){
+      const t = getTier(tierPool[Math.floor(Math.random()*tierPool.length)]);
+      const angle = (i / botCount) * Math.PI * 2;
+      const r = 700 + rand(-50, 50);
+      const x = ARENA.w/2 + Math.cos(angle)*r;
+      const y = ARENA.h/2 + Math.sin(angle)*r;
+      tanks.push(makeTank("b"+i, false, BOT_NAMES[i % BOT_NAMES.length], t, x, y));
+    }
   }
 
   return {
@@ -641,16 +644,18 @@ export function step(state: GameState, input: Input, dt: number) {
     }
   }
 
-  // Respawn bots so arena stays lively
-  const aliveOthers = state.tanks.filter(t => !t.isPlayer && t.alive).length;
-  if (aliveOthers < 7 && Math.random() < 0.02) {
-    const pool: TierId[] = MODE_TIER_POOLS[state.mode] || ALL_BOT_TIERS;
-    const tier = getTier(pool[Math.floor(Math.random()*pool.length)]);
-    const a = Math.random()*Math.PI*2;
-    const r = Math.min(state.zoneRadius - 100, 800);
-    const nx = state.zoneCx + Math.cos(a)*r;
-    const ny = state.zoneCy + Math.sin(a)*r;
-    state.tanks.push(makeTank("b"+Date.now()+Math.random(), false, BOT_NAMES[Math.floor(Math.random()*BOT_NAMES.length)], tier, nx, ny));
+  // Respawn bots only in training. Live arenas wait for real opponents.
+  if (state.mode === "training") {
+    const aliveOthers = state.tanks.filter(t => !t.isPlayer && !t.isRemote && t.alive).length;
+    if (aliveOthers < 7 && Math.random() < 0.02) {
+      const pool: TierId[] = MODE_TIER_POOLS[state.mode] || ALL_BOT_TIERS;
+      const tier = getTier(pool[Math.floor(Math.random()*pool.length)]);
+      const a = Math.random()*Math.PI*2;
+      const r = Math.min(state.zoneRadius - 100, 800);
+      const nx = state.zoneCx + Math.cos(a)*r;
+      const ny = state.zoneCy + Math.sin(a)*r;
+      state.tanks.push(makeTank("b"+Date.now()+Math.random(), false, BOT_NAMES[Math.floor(Math.random()*BOT_NAMES.length)], tier, nx, ny));
+    }
   }
 
   // Prune stale remote players we haven't heard from in ~5s
