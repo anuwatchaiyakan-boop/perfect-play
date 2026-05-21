@@ -255,6 +255,21 @@ function fire(state: GameState, tank: Tank) {
 
 function applyDamage(state: GameState, victim: Tank, attackerId: string, dmg: number) {
   if (!victim.alive) return;
+  // If victim is a remote real player, do NOT mutate locally — broadcast the hit
+  // and let the owning client apply damage authoritatively.
+  if (victim.isRemote) {
+    spawnSparks(state, victim.x, victim.y, "rgba(255,170,80,1)", 6);
+    const attacker = state.tanks.find(t => t.id === attackerId);
+    if (attacker?.isPlayer && state.outgoing) {
+      state.outgoing.hits.push({
+        targetId: victim.id,
+        attackerId,
+        attackerName: attacker.name,
+        dmg,
+      });
+    }
+    return;
+  }
   if (victim.shieldHits > 0) {
     victim.shieldHits--;
     spawnSparks(state, victim.x, victim.y, "rgba(160,210,255,1)", 8);
