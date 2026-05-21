@@ -362,6 +362,29 @@ export default function Arena({ tier, wallet, mode, onExit }: Props) {
       drawTank(ctx, t, v);
     }
 
+    // Player marker (ring + arrow) so you always know which tank is yours
+    if (p && p.alive) {
+      const pr = p.tier.radius;
+      const t = performance.now()/200;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.strokeStyle = v("--primary");
+      ctx.globalAlpha = 0.55 + Math.sin(t)*0.25;
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([6,5]);
+      ctx.beginPath(); ctx.arc(0,0, pr + 10, 0, Math.PI*2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+      // Arrow above
+      ctx.fillStyle = v("--primary");
+      ctx.beginPath();
+      ctx.moveTo(0, -pr - 26);
+      ctx.lineTo(-7, -pr - 36);
+      ctx.lineTo( 7, -pr - 36);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+
     // Particles
     for (const part of st.particles) {
       const lf = part.life / part.maxLife;
