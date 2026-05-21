@@ -93,7 +93,7 @@ const BOT_NAMES = ["Vex","Rook","Nova","Hex","Brick","Ghost","Tank","Saber","Bol
 function rand(min: number, max: number) { return min + Math.random() * (max - min); }
 function dist(a: {x:number;y:number}, b: {x:number;y:number}) { return Math.hypot(a.x-b.x, a.y-b.y); }
 
-export function createInitialState(playerTierId: TierId, wallet: number, mode: GameMode = "training"): GameState {
+export function createInitialState(playerTierId: TierId, wallet: number, mode: GameMode = "training", netId?: string, netName?: string): GameState {
   const walls: Wall[] = [];
   // Outer border handled via collision with arena bounds
   // Indestructible walls
@@ -125,7 +125,7 @@ export function createInitialState(playerTierId: TierId, wallet: number, mode: G
   }));
 
   const playerTier = getTier(playerTierId);
-  const player = makeTank("player", true, "You", playerTier, ARENA.w/2 - 200, ARENA.h/2);
+  const player = makeTank(netId || "player", true, netName || "You", playerTier, ARENA.w/2 - 200, ARENA.h/2);
 
   // Bots: mix of tiers, weighted toward cheap
   const tanks: Tank[] = [player];
@@ -150,6 +150,8 @@ export function createInitialState(playerTierId: TierId, wallet: number, mode: G
     killFeed: [], floats: [], earnings: 0, wallet,
     gameOver: false, lastKillSummary: null, paused: false,
     shake: 0, mode,
+    outgoing: { fires: [], hits: [], death: null },
+    netId, netName,
   };
 }
 
