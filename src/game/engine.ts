@@ -11,6 +11,7 @@ export interface Bullet {
 export interface Tank {
   id: string;
   isPlayer: boolean;
+  isRemote?: boolean;
   name: string;
   tier: Tier;
   x: number; y: number;
@@ -65,13 +66,24 @@ export interface GameState {
   paused: boolean;
   shake: number;
   mode: GameMode;
+  // Outgoing network queue (filled by engine, drained by MultiplayerSession)
+  outgoing?: {
+    fires: { x:number;y:number;vx:number;vy:number;damage:number;color:string;ownerId:string }[];
+    hits: { targetId:string; attackerId:string; attackerName:string; dmg:number }[];
+    death: null | { victimId:string; victimName:string; tierCost:number; damageDealtBy:[string,string,number][] };
+  };
+  // Local identity for multiplayer
+  netId?: string;
+  netName?: string;
 }
 
 export type GameMode = "training" | "bronze" | "silver" | "elite";
 
+const ALL_BOT_TIERS: TierId[] = ["rookie","scout","soldier","bronze","silver","gold","platinum","diamond"];
 export const MODE_TIER_POOLS: Record<GameMode, TierId[]> = {
+  // Bot spawn pools per arena (lobby now allows ALL tiers everywhere)
   training: ["rookie","scout","soldier","bronze"],
-  bronze:   ["rookie","scout","soldier"],
+  bronze:   ["rookie","scout","soldier","bronze"],
   silver:   ["bronze","silver","gold"],
   elite:    ["gold","platinum","diamond"],
 };
