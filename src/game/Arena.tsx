@@ -370,29 +370,72 @@ export default function Arena({ tier, wallet, mode, onExit }: Props) {
       ctx.restore();
     }
 
-    // Bullets (with glow + trail)
+    // Bullets — tracer shells with hot core, plasma rim, smoke trail
     for (const b of st.bullets) {
-      // trail
-      for (let i=0;i<b.trail.length;i++){
-        const tp = b.trail[i];
-        const a = (i / b.trail.length) * 0.5;
-        ctx.globalAlpha = a;
-        ctx.fillStyle = colorFor(b.color, v);
-        ctx.beginPath(); ctx.arc(tp.x, tp.y, 2 + i*0.2, 0, Math.PI*2); ctx.fill();
+      const tint = colorFor(b.color, v);
+      const ang = Math.atan2(b.vy, b.vx);
+      // size scales gently with damage
+      const shellLen = 10 + Math.min(10, b.damage * 0.18);
+      const shellW   = 3.2 + Math.min(3.5, b.damage * 0.06);
+
+      // Streak trail (line-based, fading)
+      if (b.trail.length > 1) {
+        ctx.lineCap = "round";
+        for (let i=1;i<b.trail.length;i++){
+          const p0 = b.trail[i-1], p1 = b.trail[i];
+          const a = (i / b.trail.length);
+          ctx.globalAlpha = a * 0.55;
+          ctx.strokeStyle = tint;
+          ctx.lineWidth = shellW * (0.4 + a*0.9);
+          ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+        }
+        // bright inner streak
+        ctx.globalAlpha = 0.9;
+        ctx.strokeStyle = "rgba(255,250,220,0.9)";
+        ctx.lineWidth = Math.max(1, shellW * 0.45);
+        ctx.beginPath();
+        ctx.moveTo(b.trail[0].x, b.trail[0].y);
+        for (const tp of b.trail) ctx.lineTo(tp.x, tp.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
       }
-      ctx.globalAlpha = 1;
-      // glow
-      const bg2 = ctx.createRadialGradient(b.x,b.y,1,b.x,b.y,12);
-      bg2.addColorStop(0, "rgba(255,240,180,0.9)");
-      bg2.addColorStop(1, "rgba(255,240,180,0)");
-      ctx.fillStyle = bg2;
-      ctx.beginPath(); ctx.arc(b.x,b.y,12,0,Math.PI*2); ctx.fill();
-      // core
-      ctx.fillStyle = "#fff8d8";
-      ctx.beginPath(); ctx.arc(b.x, b.y, 3.5, 0, Math.PI*2); ctx.fill();
-      ctx.strokeStyle = colorFor(b.color, v);
-      ctx.lineWidth = 2;
-      ctx.stroke();
+
+      // Outer glow halo
+      const halo = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, shellLen * 1.8);
+      halo.addColorStop(0, "rgba(255,240,180,0.55)");
+      halo.addColorStop(0.5, "rgba(255,200,120,0.18)");
+      halo.addColorStop(1, "rgba(255,200,120,0)");
+      ctx.fillStyle = halo;
+      ctx.beginPath(); ctx.arc(b.x, b.y, shellLen * 1.8, 0, Math.PI*2); ctx.fill();
+
+      // Shell body (oriented along velocity)
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.rotate(ang);
+      // dark casing
+      ctx.fillStyle = "rgba(20,18,14,0.9)";
+      roundRect(ctx, -shellLen*0.55, -shellW*0.65, shellLen*1.1, shellW*1.3, shellW*0.55);
+      ctx.fill();
+      // colored shell with metallic gradient
+      const sg = ctx.createLinearGradient(0, -shellW, 0, shellW);
+      sg.addColorStop(0, "#fff8d8");
+      sg.addColorStop(0.45, tint);
+      sg.addColorStop(1, "rgba(0,0,0,0.6)");
+      ctx.fillStyle = sg;
+      roundRect(ctx, -shellLen*0.45, -shellW*0.55, shellLen*0.9, shellW*1.1, shellW*0.55);
+      ctx.fill();
+      // pointed tip
+      ctx.fillStyle = "#fff5cc";
+      ctx.beginPath();
+      ctx.moveTo(shellLen*0.55, 0);
+      ctx.lineTo(shellLen*0.32, -shellW*0.55);
+      ctx.lineTo(shellLen*0.32,  shellW*0.55);
+      ctx.closePath(); ctx.fill();
+      // hot core highlight
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.beginPath(); ctx.ellipse(-shellLen*0.05, 0, shellLen*0.22, shellW*0.35, 0, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
     }
 
     // Tanks (detailed)
