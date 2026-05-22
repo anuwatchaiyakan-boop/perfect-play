@@ -1,6 +1,6 @@
 import { Tier, TIERS, getTier, TierId } from "./tiers";
 
-export const ARENA = { w: 2000, h: 2000 };
+export const ARENA = { w: 3200, h: 3200 };
 
 export interface Bullet {
   x: number; y: number; vx: number; vy: number;
@@ -97,7 +97,8 @@ export function createInitialState(playerTierId: TierId, wallet: number, mode: G
   const walls: Wall[] = [];
   // Outer border handled via collision with arena bounds
   // Indestructible walls
-  const ind = [
+  const OFF = ARENA.w/2 - 1000; // shift legacy 2000x2000 layout to new arena center
+  const indRaw = [
     [400, 400, 280, 40], [400, 400, 40, 280],
     [1320, 400, 280, 40], [1560, 400, 40, 280],
     [400, 1560, 280, 40], [400, 1320, 40, 280],
@@ -105,23 +106,23 @@ export function createInitialState(playerTierId: TierId, wallet: number, mode: G
     [900, 700, 200, 30], [900, 1270, 200, 30],
     [700, 900, 30, 200], [1270, 900, 30, 200],
   ];
-  ind.forEach(([x,y,w,h]) => walls.push({ x,y,w,h, destructible: false }));
+  indRaw.forEach(([x,y,w,h]) => walls.push({ x: x+OFF, y: y+OFF, w, h, destructible: false }));
   // Destructible barriers
-  const des = [
+  const desRaw = [
     [950, 950, 100, 100], [600, 1000, 80, 80], [1320, 1000, 80, 80],
     [1000, 600, 80, 80], [1000, 1320, 80, 80],
     [500, 500, 60, 60], [1440, 500, 60, 60], [500, 1440, 60, 60], [1440, 1440, 60, 60],
   ];
-  des.forEach(([x,y,w,h]) => walls.push({ x,y,w,h, destructible: true, hp: 80 }));
+  desRaw.forEach(([x,y,w,h]) => walls.push({ x: x+OFF, y: y+OFF, w, h, destructible: true, hp: 80 }));
 
   // Bounty nodes
   const bountyKinds: BountyKind[] = ["damage","rapid","speed","shield","heal","cash"];
-  const bountyPositions = [
+  const bountyPositionsRaw = [
     {x:1000,y:1000}, {x:600,y:600}, {x:1400,y:600}, {x:600,y:1400}, {x:1400,y:1400},
     {x:1000,y:500}, {x:1000,y:1500}, {x:500,y:1000}, {x:1500,y:1000},
   ];
-  const bounties: Bounty[] = bountyPositions.map((p,i) => ({
-    x: p.x, y: p.y, kind: bountyKinds[i % bountyKinds.length], respawn: 0, active: true,
+  const bounties: Bounty[] = bountyPositionsRaw.map((p,i) => ({
+    x: p.x+OFF, y: p.y+OFF, kind: bountyKinds[i % bountyKinds.length], respawn: 0, active: true,
   }));
 
   const playerTier = getTier(playerTierId);

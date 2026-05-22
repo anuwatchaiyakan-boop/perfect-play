@@ -20,6 +20,7 @@ export default function Arena({ tier, wallet, mode, onExit }: Props) {
   const stateRef = useRef<GameState>(createInitialState(tier, wallet, mode, identity.current.id, identity.current.name));
   const inputRef = useRef<Input>({ up:false,down:false,left:false,right:false,fire:false,aimX:0,aimY:0 });
   const sessionRef = useRef<MultiplayerSession | null>(null);
+  const zoomRef = useRef<number>(1);
   const [, setTick] = useState(0);
 
   useEffect(() => {
@@ -67,14 +68,21 @@ export default function Arena({ tier, wallet, mode, onExit }: Props) {
       const p = st.player;
       if (!p) return;
       const viewW = canvas.clientWidth, viewH = canvas.clientHeight;
-      inputRef.current.aimX = p.x + (sx - viewW/2);
-      inputRef.current.aimY = p.y + (sy - viewH/2);
+      const z = zoomRef.current;
+      inputRef.current.aimX = p.x + (sx - viewW/2) / z;
+      inputRef.current.aimY = p.y + (sy - viewH/2) / z;
     };
     const onDown = () => { inputRef.current.fire = true; };
     const onUp = () => { inputRef.current.fire = false; };
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const factor = Math.exp(-e.deltaY * 0.0015);
+      zoomRef.current = Math.max(0.4, Math.min(2.0, zoomRef.current * factor));
+    };
     canvas.addEventListener("mousemove", onMove);
     canvas.addEventListener("mousedown", onDown);
     canvas.addEventListener("mouseup", onUp);
+    canvas.addEventListener("wheel", onWheel, { passive: false });
 
     const css = getComputedStyle(document.documentElement);
     const cache: Record<string,string> = {};
@@ -86,7 +94,7 @@ export default function Arena({ tier, wallet, mode, onExit }: Props) {
       const st = stateRef.current;
       step(st, inputRef.current, dt);
       sessionRef.current?.tick(dt);
-      render(ctx, st, canvas, v);
+      render(ctx, st, canvas, v, zoomRef.current);
       setTick(t => (t+1) % 1000000);
       raf = requestAnimationFrame(loop);
     };
@@ -97,6 +105,7 @@ export default function Arena({ tier, wallet, mode, onExit }: Props) {
       canvas.removeEventListener("mousemove", onMove);
       canvas.removeEventListener("mousedown", onDown);
       canvas.removeEventListener("mouseup", onUp);
+      canvas.removeEventListener("wheel", onWheel);
     };
   }, []);
 
@@ -147,6 +156,24 @@ export default function Arena({ tier, wallet, mode, onExit }: Props) {
           </div>
         )}
       </div>
+      {/* Zoom controls */}
+      <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-2 pointer-events-auto">
+        <button
+          className="w-9 h-9 rounded-lg bg-card/85 backdrop-blur border border-border text-card-foreground text-lg font-bold hover:bg-card transition shadow-lg"
+          onClick={() => { zoomRef.current = Math.min(2.0, zoomRef.current * 1.2); }}
+          aria-label="Zoom in"
+        >+</button>
+        <button
+          className="w-9 h-9 rounded-lg bg-card/85 backdrop-blur border border-border text-card-foreground text-[10px] font-mono hover:bg-card transition shadow-lg"
+          onClick={() => { zoomRef.current = 1; }}
+          aria-label="Reset zoom"
+        >1:1</button>
+        <button
+          className="w-9 h-9 rounded-lg bg-card/85 backdrop-blur border border-border text-card-foreground text-lg font-bold hover:bg-card transition shadow-lg"
+          onClick={() => { zoomRef.current = Math.max(0.4, zoomRef.current / 1.2); }}
+          aria-label="Zoom out"
+        >−</button>
+      </div>
       {st.paused && !st.gameOver && (
         <div className="absolute inset-0 bg-background/70 backdrop-blur-sm flex items-center justify-center">
           <div className="text-center">
@@ -194,7 +221,7 @@ export default function Arena({ tier, wallet, mode, onExit }: Props) {
     </div>
   );
 
-  function render(ctx: CanvasRenderingContext2D, st: GameState, canvas: HTMLCanvasElement, v: (n: string) => string) {
+  function render(ctx: CanvasRenderingContext2D, st: GameState, canvas: HTMLCanvasElement, v: (n: string) => string, zoom: number) {
     const viewW = canvas.clientWidth, viewH = canvas.clientHeight;
     ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
     ctx.clearRect(0,0,viewW,viewH);
@@ -213,14 +240,19 @@ export default function Arena({ tier, wallet, mode, onExit }: Props) {
     const shakeY = (Math.random()-0.5) * st.shake;
 
     ctx.save();
-    ctx.translate(viewW/2 - camX + shakeX, viewH/2 - camY + shakeY);
+    ctx.translate(viewW/2 + shakeX, viewH/2 + shakeY);
+    ctx.scale(zoom, zoom);
+    ctx.translate(-camX, -camY);
 
+    // Visible world rect (account for zoom)
+    const halfW = viewW / (2 * zoom);
+    const halfH = viewH / (2 * zoom);
     // Tile floor
     const tile = 100;
-    const x0 = Math.floor((camX - viewW/2)/tile)*tile;
-    const y0 = Math.floor((camY - viewH/2)/tile)*tile;
-    for (let x = x0; x < camX + viewW/2 + tile; x += tile) {
-      for (let y = y0; y < camY + viewH/2 + tile; y += tile) {
+    const x0 = Math.floor((camX - halfW)/tile)*tile;
+    const y0 = Math.floor((camY - halfH)/tile)*tile;
+    for (let x = x0; x < camX + halfW + tile; x += tile) {
+      for (let y = y0; y < camY + halfH + tile; y += tile) {
         const checker = (((x/tile)+(y/tile)) & 1) === 0;
         ctx.fillStyle = checker ? "rgba(255,255,255,0.015)" : "rgba(0,0,0,0.15)";
         ctx.fillRect(x, y, tile, tile);
@@ -231,10 +263,10 @@ export default function Arena({ tier, wallet, mode, onExit }: Props) {
     ctx.lineWidth = 1;
     ctx.beginPath();
     const gs = 50;
-    const gx0 = Math.floor((camX - viewW/2)/gs)*gs;
-    const gy0 = Math.floor((camY - viewH/2)/gs)*gs;
-    for (let x = gx0; x < camX + viewW/2 + gs; x += gs) { ctx.moveTo(x, camY - viewH/2); ctx.lineTo(x, camY + viewH/2); }
-    for (let y = gy0; y < camY + viewH/2 + gs; y += gs) { ctx.moveTo(camX - viewW/2, y); ctx.lineTo(camX + viewW/2, y); }
+    const gx0 = Math.floor((camX - halfW)/gs)*gs;
+    const gy0 = Math.floor((camY - halfH)/gs)*gs;
+    for (let x = gx0; x < camX + halfW + gs; x += gs) { ctx.moveTo(x, camY - halfH); ctx.lineTo(x, camY + halfH); }
+    for (let y = gy0; y < camY + halfH + gs; y += gs) { ctx.moveTo(camX - halfW, y); ctx.lineTo(camX + halfW, y); }
     ctx.stroke();
 
     // Arena border (double line)
@@ -338,29 +370,72 @@ export default function Arena({ tier, wallet, mode, onExit }: Props) {
       ctx.restore();
     }
 
-    // Bullets (with glow + trail)
+    // Bullets — tracer shells with hot core, plasma rim, smoke trail
     for (const b of st.bullets) {
-      // trail
-      for (let i=0;i<b.trail.length;i++){
-        const tp = b.trail[i];
-        const a = (i / b.trail.length) * 0.5;
-        ctx.globalAlpha = a;
-        ctx.fillStyle = colorFor(b.color, v);
-        ctx.beginPath(); ctx.arc(tp.x, tp.y, 2 + i*0.2, 0, Math.PI*2); ctx.fill();
+      const tint = colorFor(b.color, v);
+      const ang = Math.atan2(b.vy, b.vx);
+      // size scales gently with damage
+      const shellLen = 10 + Math.min(10, b.damage * 0.18);
+      const shellW   = 3.2 + Math.min(3.5, b.damage * 0.06);
+
+      // Streak trail (line-based, fading)
+      if (b.trail.length > 1) {
+        ctx.lineCap = "round";
+        for (let i=1;i<b.trail.length;i++){
+          const p0 = b.trail[i-1], p1 = b.trail[i];
+          const a = (i / b.trail.length);
+          ctx.globalAlpha = a * 0.55;
+          ctx.strokeStyle = tint;
+          ctx.lineWidth = shellW * (0.4 + a*0.9);
+          ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
+        }
+        // bright inner streak
+        ctx.globalAlpha = 0.9;
+        ctx.strokeStyle = "rgba(255,250,220,0.9)";
+        ctx.lineWidth = Math.max(1, shellW * 0.45);
+        ctx.beginPath();
+        ctx.moveTo(b.trail[0].x, b.trail[0].y);
+        for (const tp of b.trail) ctx.lineTo(tp.x, tp.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
       }
-      ctx.globalAlpha = 1;
-      // glow
-      const bg2 = ctx.createRadialGradient(b.x,b.y,1,b.x,b.y,12);
-      bg2.addColorStop(0, "rgba(255,240,180,0.9)");
-      bg2.addColorStop(1, "rgba(255,240,180,0)");
-      ctx.fillStyle = bg2;
-      ctx.beginPath(); ctx.arc(b.x,b.y,12,0,Math.PI*2); ctx.fill();
-      // core
-      ctx.fillStyle = "#fff8d8";
-      ctx.beginPath(); ctx.arc(b.x, b.y, 3.5, 0, Math.PI*2); ctx.fill();
-      ctx.strokeStyle = colorFor(b.color, v);
-      ctx.lineWidth = 2;
-      ctx.stroke();
+
+      // Outer glow halo
+      const halo = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, shellLen * 1.8);
+      halo.addColorStop(0, "rgba(255,240,180,0.55)");
+      halo.addColorStop(0.5, "rgba(255,200,120,0.18)");
+      halo.addColorStop(1, "rgba(255,200,120,0)");
+      ctx.fillStyle = halo;
+      ctx.beginPath(); ctx.arc(b.x, b.y, shellLen * 1.8, 0, Math.PI*2); ctx.fill();
+
+      // Shell body (oriented along velocity)
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.rotate(ang);
+      // dark casing
+      ctx.fillStyle = "rgba(20,18,14,0.9)";
+      roundRect(ctx, -shellLen*0.55, -shellW*0.65, shellLen*1.1, shellW*1.3, shellW*0.55);
+      ctx.fill();
+      // colored shell with metallic gradient
+      const sg = ctx.createLinearGradient(0, -shellW, 0, shellW);
+      sg.addColorStop(0, "#fff8d8");
+      sg.addColorStop(0.45, tint);
+      sg.addColorStop(1, "rgba(0,0,0,0.6)");
+      ctx.fillStyle = sg;
+      roundRect(ctx, -shellLen*0.45, -shellW*0.55, shellLen*0.9, shellW*1.1, shellW*0.55);
+      ctx.fill();
+      // pointed tip
+      ctx.fillStyle = "#fff5cc";
+      ctx.beginPath();
+      ctx.moveTo(shellLen*0.55, 0);
+      ctx.lineTo(shellLen*0.32, -shellW*0.55);
+      ctx.lineTo(shellLen*0.32,  shellW*0.55);
+      ctx.closePath(); ctx.fill();
+      // hot core highlight
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.beginPath(); ctx.ellipse(-shellLen*0.05, 0, shellLen*0.22, shellW*0.35, 0, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
     }
 
     // Tanks (detailed)
