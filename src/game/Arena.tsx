@@ -20,6 +20,7 @@ export default function Arena({ tier, wallet, mode, onExit }: Props) {
   const stateRef = useRef<GameState>(createInitialState(tier, wallet, mode, identity.current.id, identity.current.name));
   const inputRef = useRef<Input>({ up:false,down:false,left:false,right:false,fire:false,aimX:0,aimY:0 });
   const sessionRef = useRef<MultiplayerSession | null>(null);
+  const zoomRef = useRef<number>(1);
   const [, setTick] = useState(0);
 
   useEffect(() => {
@@ -67,14 +68,21 @@ export default function Arena({ tier, wallet, mode, onExit }: Props) {
       const p = st.player;
       if (!p) return;
       const viewW = canvas.clientWidth, viewH = canvas.clientHeight;
-      inputRef.current.aimX = p.x + (sx - viewW/2);
-      inputRef.current.aimY = p.y + (sy - viewH/2);
+      const z = zoomRef.current;
+      inputRef.current.aimX = p.x + (sx - viewW/2) / z;
+      inputRef.current.aimY = p.y + (sy - viewH/2) / z;
     };
     const onDown = () => { inputRef.current.fire = true; };
     const onUp = () => { inputRef.current.fire = false; };
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const factor = Math.exp(-e.deltaY * 0.0015);
+      zoomRef.current = Math.max(0.4, Math.min(2.0, zoomRef.current * factor));
+    };
     canvas.addEventListener("mousemove", onMove);
     canvas.addEventListener("mousedown", onDown);
     canvas.addEventListener("mouseup", onUp);
+    canvas.addEventListener("wheel", onWheel, { passive: false });
 
     const css = getComputedStyle(document.documentElement);
     const cache: Record<string,string> = {};
@@ -86,7 +94,7 @@ export default function Arena({ tier, wallet, mode, onExit }: Props) {
       const st = stateRef.current;
       step(st, inputRef.current, dt);
       sessionRef.current?.tick(dt);
-      render(ctx, st, canvas, v);
+      render(ctx, st, canvas, v, zoomRef.current);
       setTick(t => (t+1) % 1000000);
       raf = requestAnimationFrame(loop);
     };
@@ -97,6 +105,7 @@ export default function Arena({ tier, wallet, mode, onExit }: Props) {
       canvas.removeEventListener("mousemove", onMove);
       canvas.removeEventListener("mousedown", onDown);
       canvas.removeEventListener("mouseup", onUp);
+      canvas.removeEventListener("wheel", onWheel);
     };
   }, []);
 
@@ -146,6 +155,24 @@ export default function Arena({ tier, wallet, mode, onExit }: Props) {
             </div>
           </div>
         )}
+      </div>
+      {/* Zoom controls */}
+      <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-2 pointer-events-auto">
+        <button
+          className="w-9 h-9 rounded-lg bg-card/85 backdrop-blur border border-border text-card-foreground text-lg font-bold hover:bg-card transition shadow-lg"
+          onClick={() => { zoomRef.current = Math.min(2.0, zoomRef.current * 1.2); }}
+          aria-label="Zoom in"
+        >+</button>
+        <button
+          className="w-9 h-9 rounded-lg bg-card/85 backdrop-blur border border-border text-card-foreground text-[10px] font-mono hover:bg-card transition shadow-lg"
+          onClick={() => { zoomRef.current = 1; }}
+          aria-label="Reset zoom"
+        >1:1</button>
+        <button
+          className="w-9 h-9 rounded-lg bg-card/85 backdrop-blur border border-border text-card-foreground text-lg font-bold hover:bg-card transition shadow-lg"
+          onClick={() => { zoomRef.current = Math.max(0.4, zoomRef.current / 1.2); }}
+          aria-label="Zoom out"
+        >−</button>
       </div>
       {st.paused && !st.gameOver && (
         <div className="absolute inset-0 bg-background/70 backdrop-blur-sm flex items-center justify-center">
