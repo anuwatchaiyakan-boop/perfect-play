@@ -221,7 +221,7 @@ export default function Arena({ tier, wallet, mode, onExit }: Props) {
     </div>
   );
 
-  function render(ctx: CanvasRenderingContext2D, st: GameState, canvas: HTMLCanvasElement, v: (n: string) => string) {
+  function render(ctx: CanvasRenderingContext2D, st: GameState, canvas: HTMLCanvasElement, v: (n: string) => string, zoom: number) {
     const viewW = canvas.clientWidth, viewH = canvas.clientHeight;
     ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
     ctx.clearRect(0,0,viewW,viewH);
@@ -240,14 +240,19 @@ export default function Arena({ tier, wallet, mode, onExit }: Props) {
     const shakeY = (Math.random()-0.5) * st.shake;
 
     ctx.save();
-    ctx.translate(viewW/2 - camX + shakeX, viewH/2 - camY + shakeY);
+    ctx.translate(viewW/2 + shakeX, viewH/2 + shakeY);
+    ctx.scale(zoom, zoom);
+    ctx.translate(-camX, -camY);
 
+    // Visible world rect (account for zoom)
+    const halfW = viewW / (2 * zoom);
+    const halfH = viewH / (2 * zoom);
     // Tile floor
     const tile = 100;
-    const x0 = Math.floor((camX - viewW/2)/tile)*tile;
-    const y0 = Math.floor((camY - viewH/2)/tile)*tile;
-    for (let x = x0; x < camX + viewW/2 + tile; x += tile) {
-      for (let y = y0; y < camY + viewH/2 + tile; y += tile) {
+    const x0 = Math.floor((camX - halfW)/tile)*tile;
+    const y0 = Math.floor((camY - halfH)/tile)*tile;
+    for (let x = x0; x < camX + halfW + tile; x += tile) {
+      for (let y = y0; y < camY + halfH + tile; y += tile) {
         const checker = (((x/tile)+(y/tile)) & 1) === 0;
         ctx.fillStyle = checker ? "rgba(255,255,255,0.015)" : "rgba(0,0,0,0.15)";
         ctx.fillRect(x, y, tile, tile);
@@ -258,10 +263,10 @@ export default function Arena({ tier, wallet, mode, onExit }: Props) {
     ctx.lineWidth = 1;
     ctx.beginPath();
     const gs = 50;
-    const gx0 = Math.floor((camX - viewW/2)/gs)*gs;
-    const gy0 = Math.floor((camY - viewH/2)/gs)*gs;
-    for (let x = gx0; x < camX + viewW/2 + gs; x += gs) { ctx.moveTo(x, camY - viewH/2); ctx.lineTo(x, camY + viewH/2); }
-    for (let y = gy0; y < camY + viewH/2 + gs; y += gs) { ctx.moveTo(camX - viewW/2, y); ctx.lineTo(camX + viewW/2, y); }
+    const gx0 = Math.floor((camX - halfW)/gs)*gs;
+    const gy0 = Math.floor((camY - halfH)/gs)*gs;
+    for (let x = gx0; x < camX + halfW + gs; x += gs) { ctx.moveTo(x, camY - halfH); ctx.lineTo(x, camY + halfH); }
+    for (let y = gy0; y < camY + halfH + gs; y += gs) { ctx.moveTo(camX - halfW, y); ctx.lineTo(camX + halfW, y); }
     ctx.stroke();
 
     // Arena border (double line)
