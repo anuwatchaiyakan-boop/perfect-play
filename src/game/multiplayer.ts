@@ -57,6 +57,7 @@ export class MultiplayerSession {
     });
     this.channel.on("broadcast", { event: "leave" }, ({ payload }) => {
       const id = (payload as any)?.id;
+      if (!id || id === this.state.netId) return; // never drop the local player
       this.state.tanks = this.state.tanks.filter(t => t.id !== id);
     });
 
